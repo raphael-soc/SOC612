@@ -1,12 +1,9 @@
-name: my-env
+name: soc612-env
 channels:
   - conda-forge
 dependencies:
   - python=3.9
   - pip
-  - pip:  # Python packages
-    - numpy
-    - pandas
   - r-base=4.3.2
-  - r-irkernel  # R kernel for Jupyter
+  - r-irkernel
   - r-rmarkdown
