@@ -1,3 +1,4 @@
 # Course Materials
-[JupyterNotebook](https://mybinder.org/v2/gh/raphael-soc/soc612/L1)
-[R Markdown](https://mybinder.org/v2/gh/raphael-soc/soc612/L1?urlpath=rstudio)
+[📓 **JupyterLab** (for `.ipynb` files)](https://mybinder.org/v2/gh/raphael-soc/SOC612/main?urlpath=lab/tree/L1)
+
+[📊 **RStudio** (for `.Rmd` files)](https://mybinder.org/v2/gh/raphael-soc/SOC612/main?urlpath=rstudio)
