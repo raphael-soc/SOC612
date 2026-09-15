@@ -1,0 +1,359 @@
+---
+title: "SOC612_L2"
+author: "Raphi Duerr"
+date: "`r Sys.Date()`"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##### SOC612: Data Analytics for the Social Sciences
+##### Date: September 15, 2026
+##### Author: R. Duerr
+##### Lecture 2: Working with data
+
+For the use of external data, we'll check and set a working directory, and import the data from the World Value Survey (Waves 6-7). We assign it the object name 'data'.
+
+For .csv files, we can use read_csv() from readr (or read.csv() from Base-R). For common alternative formats you can use, for example: read.delim() for .tsv files (from readr) , read_excel for .xlsx files (from readxl), readRDS() for native R files, fromJSON() for a JSON string (from jsonlite ), or read_xml() for xml/html data (from xml2).
+
+For files from other statistical programmes (e.g., SPSS, SAS, or Stata), you can use read_sav() for SPSS, read_dta() for Stata, and read_sas() for SAS (all in haven).
+
+```{r data_chunk1_installation}
+library(readr)
+
+getwd() #manually check for the working directory
+setwd(getwd()) #use getwd() inside setwd() to automatically assign the path
+data <- read_csv("wvs6_7.csv")
+```
+
+Wave 6-7 from WVS has 613 variables. For our analysis, we are only interested in
+a few selected variables. Let's subset the full data into a simpler object. For our analysis on people's view on economic competition (Q106-Q111) and science and technology (Q158-Q163) in East Asian societies, and how they correlate with socio-demographics (Q260, Q262, Q273, Q275). We'll retain the original object. In R, the tidyverse package offers many necessary editing functions.
+
+After subsetting the selected variables, we do some checks on variable levels. While subsetting, we'll rename our selected variables.
+
+
+```{r data_chunk2_subset}
+library(tidyverse)
+library(magrittr) #for pipe function %>%
+
+subset <- select(data, country=B_COUNTRY, sex=Q260, age=Q262,
+                 marital_status=Q273, education=Q275, #socio-demographics
+                 eco1=Q106, eco2=Q107, eco3=Q108, eco4=Q109, eco5=Q110, eco6=Q111,
+                 #economic values
+                 sci1=Q158, sci2=Q159, sci3=Q160, sci4=Q161, sci5=Q162, sci6=Q163
+                 #science & technology values
+)
+
+#limit to East Asian societies: China (156), Hong Kong SAR (446), Macao SAR (344), Japan (392), South Korea (410), Taiwan ROC (158)
+subset_EA <- subset %>%
+              filter(country %in% c(156, 446, 344, 392, 410, 158))
+                
+```
+
+We have limited our dataset to 17 columns, and 9,955 rows, down from 613 columns and 97,220 rows. Let's continue with making it more handy to work with.
+
+- Assign the correct variable levels: Some variables (country, sex, marital status, education) should be ordinal rather than metric/quasi-metric.
+
+- Check the value ranges of the variables. Recode them to NA, where necessary.
+
+```{r data_chunk3_tidying}
+#countries
+subset_EA <- subset_EA %>%
+  mutate(country = recode(
+    country,
+    `156` = "China",
+    `446` = "Hong Kong SAR",
+    `344` = "Macao SAR",
+    `392` = "Japan",
+    `410` = "South Korea",
+    `158` = "Taiwan ROC"
+  )) %>%
+  mutate(country = as.factor(country))
+
+#The same can also be done in Base-R:
+#subset_EA$country <- factor(
+#  subset_EA$country,
+#  levels = c(156, 446, 344, 392, 410, 158),
+#  labels = c("China", "Hong Kong SAR", "Macao SAR", "Japan", "South Korea", "Taiwan ROC"))
+
+#sex
+subset_EA <- subset_EA %>%
+  mutate(
+    sex = recode(
+      sex,
+      `1` = "male",
+      `2` = "female",
+      .default = NA_character_
+    )
+  ) %>%
+  mutate(sex = as.factor(sex))
+
+#martial status
+subset_EA <- subset_EA %>%
+  mutate(
+    marital_status = recode(
+      marital_status,
+      `1` = "married",
+      `2` = "married_cohabiting",
+      `3` = "divorced",
+      `4` = "separated",
+      `5` = "widowed",
+      `6` = "single",
+      .default = NA_character_
+      )
+  ) %>%
+  mutate(marital_status = as.factor(marital_status))
+
+#assume we only care if someone is currently partnered (1,2) or single (3,4,5,6).
+subset_EA <- subset_EA %>%
+  mutate(
+    marital_status = case_when(
+      marital_status %in% c("married", "married_cohabiting") ~ "partnered",
+      marital_status %in% c("divorced","separated","widowed","single") ~ "single",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  mutate(marital_status = as.factor(marital_status))
+
+#education
+subset_EA <- subset_EA %>%
+  mutate(
+    education = case_when(
+      education %in% c(0, 1) ~ "primary_or_below",
+      education %in% c(2, 3) ~ "secondary",
+      education %in% c(4, 5) ~ "post_secondary",
+      education %in% c(6, 7, 8) ~ "tertiary",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  mutate(education = as.factor(education))
+
+#age
+print(range(subset_EA$age, na.rm = TRUE)) #range goes below 18
+subset_EA <- subset_EA %>%
+  mutate(age = ifelse(age < 18, NA, age)) #replace those <18 with NA
+
+#economic values variables: Q106-Q110 (columns 6-10) should fall within a range of 1-10
+subset_EA <- subset_EA %>%
+  mutate(across(6:10, ~ifelse(between(., 1, 10), ., NA)))
+
+#same for science & technology variables: Q158-Q163 (columns 12-17)
+subset_EA <- subset_EA %>%
+  mutate(across(12:17, ~ifelse(between(., 1, 10), ., NA)))
+
+#or both in one:
+#subset_EA <- subset_EA %>%
+#  mutate(across(c(6:10,12:17), ~ ifelse(between(., 1, 10), ., NA)))
+
+#eco6 is a binary factor:
+subset_EA <- subset_EA %>%
+  mutate(
+    eco6 = recode(
+      eco6,
+      `1` = "environment",
+      `2` = "growth",
+      .default = NA_character_
+    )
+  ) %>%
+  mutate(eco6 = as.factor(eco6))
+
+```
+
+Assume we want to align the first four of the economic values variables and all six of the science and technology variables along a spectrum. For economic values, 'more collectivist' (1) vs 'more individualist' (10), for science and technology, 'more cautious' (1) vs 'more innovative' (10).
+
+For now, we also just want to work with complete cases on these variables, so we'll remove cases with NA's on them first.
+
+- Remove NA's on eco1-eco4, and sci1-sci6
+- eco2 and eco4 have to be reversed.
+- sci3, sci4, and sci5 have to be reversed.
+
+In a second step, we want to standardize them. We will do two versions of it:
+
+- We standardize them using the whole sample.
+- We standardize them country-wise.
+
+```{r data_chunk4_variable scales}
+
+#remove NA's
+subset_EA <- subset_EA %>%
+  filter(complete.cases(eco1, eco2, eco3, eco4,
+                        sci1, sci2, sci3, sci4, sci5, sci6))
+
+#alternatively use column numbers
+#subset_EA <- subset_EA %>%
+#  filter(complete.cases(select(., 6:9, 12:17)))
+
+#economic values reversed
+subset_EA <- subset_EA %>%
+  mutate(across(c(eco2, eco4), ~ 11 - .x))
+
+#science and technology values reversed
+subset_EA <- subset_EA %>%
+  mutate(across(c(sci3, sci4, sci5), ~ 11 - .x))
+
+#scaling variables (m=0, sd=1)
+subset_EA <- subset_EA %>%
+  mutate(eco_sum = rowSums(select(., eco1, eco2, eco3, eco4), na.rm = TRUE)) %>%
+    mutate(eco_sum = scale(eco_sum)[, 1])
+
+#scaling variables (m=0, sd=1)
+subset_EA <- subset_EA %>%
+  mutate(sci_sum = rowSums(select(., sci1, sci2, sci3, sci4, sci5, sci6), na.rm = TRUE)) %>%
+    mutate(sci_sum = scale(sci_sum)[, 1])
+
+#we also construct country-wise scaled variables
+#for the economic values
+subset_EA <- subset_EA %>%
+  group_by(country) %>%
+  mutate(
+    eco_sum_cw = rowSums(across(c(eco1, eco2, eco3, eco4), as.numeric), na.rm = TRUE),
+    eco_sum_cw = scale(eco_sum_cw)[, 1]
+  ) %>%
+  ungroup()
+
+#for the science and technology values
+subset_EA <- subset_EA %>%
+  group_by(country) %>%
+  mutate(
+    sci_sum_cw = rowSums(across(c(sci1, sci2, sci3, sci4, sci5, sci6), as.numeric), na.rm = TRUE),
+    sci_sum_cw = scale(sci_sum_cw)[, 1]
+  ) %>%
+  ungroup()
+
+```
+
+In some cases, we might want to create composite indices which combine multiple variables. This can, however, complicate interpretations sometimes, and should usually only be done when it's theoretically well justified, or if it follows an exploratory analysis. Let's assume we did that for our example, and we want to create an Socio-economic index variable based on age, income, and marital status.
+
+- Using age and education level, we create an additive index.
+- We weigh it by marital status.
+
+```{r data_chunk5_index}
+
+subset_EA <- subset_EA %>%
+  mutate(
+    edu_num = as.numeric(factor(education, levels = c("primary_or_below", "secondary", "post_secondary", "tertiary"))),
+
+    marital_weight = ifelse(marital_status == "partnered", 1.0, 0.8),
+
+    index = (age + edu_num) * marital_weight
+  )
+
+```
+
+In some cases, we might want to run multi-level models that involve structural variables besides individual level. Let's assume, for all of the countries in our dataset, we want to add the life expectancy (in 2017), based on gender. The World Bank has a data repository on many structural indicators.
+
+- We load the second dataset (lifeexp.xlsx) into our environment. Since the working directoy is already set, we can load the data directly.
+
+- We add the life-expectancies based on gender and country using a left_join().
+
+```{r data_chunk6_merging, echo=FALSE}
+library(readxl)
+lifeexp <- read_excel("lifeexp.xlsx")
+
+#merging lifeexp and subset_EA
+subset_EA <- subset_EA %>%
+  left_join(
+    lifeexp %>% select("Country Name", "Disaggregation", life_exp=Value),
+    by = c("country" = "Country Name",
+           "sex" = "Disaggregation")
+  )
+
+```
+
+There are cases where we might have to create our own specific function, because there is no built-in function from Base-R and no packages contain it. Let's construct the following functions:
+
+- Square function: a function that exponentiates a value by power 2 (^2); we'll use this to create an age square variable.
+
+- Percentage function: a function that calculates the percentage of an observed value from the maximum value; we'll use this to create a variable that indicates how much a person has reached in terms of country- and gender-specific life expectancy.
+
+- Conditional function: a function that indicates whether someone's country-specific standardized eco_sum_cw (economic values) and sci_sum_cw (science and technology) values exceeds the overall values, based on the following criteria: if the country-specific value is higher than the overall value, we assign a 1; if the country-specific value is more than twice as high as the overall value, we assign it a 2; for all other cases, we give them a 0.
+
+
+```{r data_chunk7_function}
+
+# 1. square function
+sqf <- function(x) {
+  return(x^2)
+}
+
+subset_EA <- subset_EA %>%
+  mutate(age_sq = sqf(age))
+
+# 2. percentage function
+prct <- function(part, total) {
+  share <- (part / total) * 100
+  return(share)
+}
+
+subset_EA <- subset_EA %>%
+  mutate(age_pct = prct(age, life_exp))
+
+# 3. conditional values function
+scaled_values_comp <- function(country_scaled, overall_scaled) {
+  ifelse(
+    abs(country_scaled) < abs(overall_scaled),0,
+    ifelse(
+      abs(country_scaled) > 2 * abs(overall_scaled),2,1)
+  )
+}
+
+subset_EA <- subset_EA %>%
+  mutate(eco_scaled_comp = scaled_values_comp(eco_sum_cw, eco_sum),
+         sci_Scaled_comp = scaled_values_comp(sci_sum_cw, sci_sum)
+         )
+
+#multiple conditions can, for example, also be written with a case_when() function
+#subset_EA$eco_scaled_comp <- case_when(
+#  abs(subset_EA$eco_sum_cw) > 2 * abs(subset_EA$eco_sum) ~ 2,
+#  abs(subset_EA$eco_sum_cw) < abs(subset_EA$eco_sum) ~ 0,
+#  TRUE ~ 1
+#)
+
+```
+
+If we want to iterate over a vector or list or another sequence of items, we can also use loops in R. Let's assume we want to mark the positive and negative extreme cases among the respondents. We identify those rows, where the respondents have either the full scores in both economic values (eco1-eco4) and science and technology values (sci1-sci6).
+
+- We create a variable indicating whether a respondent scores 100 ("positive"), 10 ("negative") or any other number ("mixed").
+
+```{r data_chunk8_loops}
+
+vars <- c("eco1", "eco2", "eco3", "eco4",
+          "sci1", "sci2", "sci3", "sci4", "sci5", "sci6")
+
+subset_EA$outlier <- rep(NA_character_, nrow(subset_EA))
+
+for (i in 1:nrow(subset_EA)) {
+  sum <- sum(subset_EA[i, vars], na.rm = TRUE)
+
+    if (sum == 100) {
+    subset_EA$outlier[i] <- "pos"
+  } else if (sum == 10) {
+    subset_EA$outlier[i] <- "neg"
+  } else {
+    subset_EA$outlier[i] <- "mixed"
+  }
+}
+
+subset_EA$outlier <- as.factor(subset_EA$outlier)
+
+```
+
+Before getting into more complex exploratory analyses, let's do a quick descriptive check of the variables and the dataset to see whether all of our changes appear plausible. We have several options for simple descriptive functions, among them summary() and str() from Base-R, describe() from Hmisc, or glimpse() from tidyverse/tibble.
+
+```{r data_chunk9_check}
+
+#Base-R
+summary(subset_EA)
+str(subset_EA)
+
+#Hmisc
+library(Hmisc)
+Hmisc::describe(subset_EA)
+
+#tidyverse
+glimpse(subset_EA)
+```
