@@ -1,0 +1,191 @@
+---
+title: "SOC612_l2"
+author: "Raphi Duerr"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##### SOC612: Data Analytics for the Social Sciences - Solutions
+##### Date: September 15, 2026
+##### Author: R. Duerr
+##### Task 1: Data Preparation
+
+1. 
+
+```{r task1_1, echo=FALSE}
+
+library(readr)
+library(readxl)
+library(tidyverse)
+library(magrittr)
+
+setwd(getwd())
+wvs <- read_csv("wvs6_7.csv")
+wbdata <- read_excel("wbdata.xlsx")
+
+```
+
+2.
+
+```{r task1_2, echo=FALSE}
+
+wvs <- wvs %>%
+  left_join(
+    wbdata %>% select(Code, `Income group`),
+    by = c("B_COUNTRY_ALPHA" = "Code")
+  )
+
+wvslm <- wvs %>%
+  filter(`Income group` == "Lower middle income") %>%
+  mutate(B_COUNTRY_ALPHA = as.factor(B_COUNTRY_ALPHA))
+
+```
+
+3. 
+
+```{r task1_3, echo=FALSE}
+
+wvslm <- select(wvslm, country=B_COUNTRY_ALPHA,sex=Q260,age=Q262,ppl_hh=Q270,
+                marital_stat=Q273, nmbr_chldrn=Q274, edu=Q275, inc=Q288,
+                trust_family=Q58, trust_neighbors=Q59, trust_first=Q61,
+                trust_religion=Q62, trust_nationality=Q63)
+
+```
+
+4.
+
+```{r task1_4, echo=FALSE}
+
+wvslm <- wvslm %>%
+  mutate(across(9:13, ~ifelse(between(., 1, 4), ., NA))) %>%
+  mutate(across(9:13, ~ .x - 1)) %>%
+  mutate(across(9:13, ~ .x *(-1) + 3 ))
+
+```
+
+5. 
+
+```{r task1_5, echo=FALSE}
+
+wvslm <- wvslm %>%
+  mutate(marital_stat = recode(marital_stat,
+      `1` = "married",
+      `2` = "married",
+      `3` = "single",
+      `4` = "single",
+      `5` = "single",
+      `6` = "single",
+      .default = NA_character_)) %>%
+  mutate(sex = recode(sex,
+      `1` = "male",
+      `2` = "female",
+      .default = NA_character_)) %>%
+  mutate(edu = recode(edu,
+      `0` = "low",
+      `1` = "low",
+      `2` = "low",
+      `3` = "middle",
+      `4` = "middle",
+      `5` = "high",
+      `6` = "high",
+      `7` = "high",
+      `8` = "high",
+      .default = NA_character_)) %>%
+  mutate(marital_stat = as.factor(marital_stat)) %>%
+  mutate(sex = as.factor(sex)) %>%
+  mutate(edu = as.factor(edu))
+      
+```
+
+6.
+
+```{r task1_6, echo=FALSE}
+
+wvslm <- wvslm %>%
+  mutate(age = ifelse(age < 18, NA, age)) %>%
+  mutate(ppl_hh = ifelse(ppl_hh < 1, NA, ppl_hh)) %>%
+  mutate(nmbr_chldrn = ifelse(nmbr_chldrn < 0, NA, nmbr_chldrn)) %>%
+  mutate(inc = ifelse(inc < 1, NA, inc))
+
+```
+
+7.
+
+```{r task1_7, echo=FALSE}
+
+wvslm <- wvslm %>%
+  mutate(trust_index = rowSums(select(., trust_family, trust_neighbors,
+                              trust_first, trust_religion,trust_nationality),
+                              na.rm = TRUE)) 
+
+```
+
+8.
+
+```{r task1_8, echo=FALSEma}
+
+normalize <- function(x) {
+  return ((x-min(x)) / (max(x)-min(x)))
+}
+
+wvslm <- wvslm %>%
+  mutate(trust_index_norm = normalize(trust_index))
+
+#Bonus
+wvslm <- wvslm %>%
+  group_by(country) %>%
+  mutate(
+    trust_mean_sum = sum(across(9:13, \(x) mean(x, na.rm = TRUE)))
+  ) %>%
+  ungroup()
+
+wvslm$trust_index_diff <- wvslm$trust_index - wvslm$trust_mean_sum
+
+```
+
+9.
+
+```{r task1_9}
+
+wvslm$index_ses <- as.numeric(wvslm$edu) * wvslm$inc
+
+#possible alternative: slightly diminishing return of higher income
+wvslm$index_ses2 <- as.numeric(wvslm$edu) * I(wvslm$inc)^0.9
+
+#possible alternative: making education less important
+wvslm$index_ses3 <- 0.9 * (as.numeric(wvslm$edu)) * wvslm$inc
+
+```
+
+10.
+
+```{r task1_10, echo=FALSE}
+
+wvslm <- wvslm %>%
+  mutate(
+    fam = ifelse(ppl_hh == 0 & marital_stat == "single" & nmbr_chldrn == 0,0,
+      ifelse(marital_stat == "single" & (nmbr_chldrn != 0 | ppl_hh != 0),1,
+        ifelse(marital_stat == "married" & nmbr_chldrn == 0 & ppl_hh == 1, 2,
+          ifelse(marital_stat == "married" & nmbr_chldrn > 0 & ppl_hh > 0, 3,
+            4
+          )
+          )
+        )
+      )
+    )
+
+```
+
+11.
+
+```{r task1_11, echo=FALSE}
+
+library(Hmisc)
+str(wvslm)
+describe(wvslm)
+
+```
