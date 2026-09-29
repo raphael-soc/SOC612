@@ -1,0 +1,322 @@
+---
+title: "SOC612_L4"
+author: "Raphi Duerr"
+date: "`r Sys.Date()`"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##### SOC612: Data Analytics for the Social Sciences
+##### Date: September 29, 2026
+##### Author: R. Duerr
+##### Lecture 4: Inferential analysis
+
+To apply some of the most used inferential regression techniques in sociology, we use a pre-processed dataset of the World Value Survey Wave 6-7 (2022).
+
+At the beginning, we load the edited dataset, and do some minor recodings. The content for lecture 4 starts at chunk 1.
+
+We have the following 10 variables next to the case ID in our dataset called 'data':
+
+- cntry: the three-letter country code
+- sex, age, edu: demographic information on the respondents sex, age, and education level.
+- chldrn: the number of children the respondents have.
+- relpers: indicates as what type of religious person the respondents see themselves.
+- relm1, relm2: two variables showing opposing meanings of religion; first, whether the focus of religion should be on doing good for others, or on norms and ceremonies. Second, if religion lessons should focus on the present life or the afterlife.
+- sci_sum, rel_sum: two cumulative index variables showing how positive the respondents are towards science and technology, and towards religion.
+
+```{r data_chunk0_prep}
+
+library(stargazer)
+library(lme4)
+library(MASS)
+library(nnet)
+library(readr)
+library(tidyverse)
+library(ggeffects)
+
+setwd(getwd())
+data <- read_csv("wb_67reg.csv")
+
+data[,c(2,3,5,7:9)]<-lapply(data[,c(2,3,5,7:9)],function(x) as.factor(x))
+
+data$edu <- fct_relevel(data$edu, "primary_or_below", "secondary","post_secondary","tertiary")
+
+data$relpers <- fct_relevel(data$relpers, "religious", "not_religious","atheist")
+
+data_HK <- data %>%
+  filter(cntry=="HKG")
+
+```
+
+For our first model on the Hong Kong subset, we apply a simple linear regression (Model 1). Our dependent variable is a cumulative index of a person's religiosity (rel_sum). Our sole predictor here is a cumulative index of a person's attitude towards science and technology. Both are positively coded, so the higher each of them is, the stronger their attitude towards either.
+
+We extend the number of predictors in Model 2: we add 'sex', 'age', and 'edu' as additional predictors to the model. For both models, we make a prediction based on our coefficients.
+
+As for now, we hold the model assumptions to be true. We will cover assumptions, model improvements, robustness, and selection in a later session.
+
+
+```{r data_chunk1_lm}
+
+#####[MODEL 1:] Simple linear model
+model1 <- lm(rel_sum ~ sci_sum, data=data_HK)
+summary(model1)
+
+#graph
+model1_p <- ggplot(data_HK, aes(y=rel_sum, x=sci_sum)) +
+  geom_jitter(alpha = .6) +
+  geom_smooth(method = "lm", se=T) +
+  labs(title="Association between Science and Religion", caption="Data: WVS 6-7, Hong Kong Subset (n=1,918)",y="Religion Index",x="Science Index")
+
+
+#####[MODEL 2:] Multiple linear model
+model2 <- lm(rel_sum ~ sci_sum + sex + age + edu, data=data_HK)
+summary(model2)
+
+stargazer(model1, model2,
+          type="html",
+          title="Linear models",
+          out="Model 1_2",
+          covariate.labels=c("Science Index","Sex (male)","Age","Educ. Secondary","Educ. Post-Secondary","Educ. Tertiary"),
+          dep.var.labels ="Religion Index")
+
+
+#Model 1: Predictions for sci_sum values 0, 10, 20, 30, 40, 50, 60, and 100
+prediction1 <- predict(model1, 
+                       newdata = data.frame(sci_sum = c(0,10,20,30,40,50,60,100)), interval="confidence")
+prediction1
+
+#Model 2: Prediction for mean sci_sum, female, mean age, and post_secondary
+prediction2 <- predict(model2, newdata = data.frame(
+  sci_sum = mean(data_HK$sci_sum),
+  sex = "female",
+  age = mean(data_HK$age),
+  edu = "post_secondary"
+), interval = "confidence")
+prediction2
+
+```
+
+There are cases when we want to modify our variables, possibly because the regression line does not show a good fit, or we have a specific aim for communicating the results. The regression and prediction function works in the same way, although interpretation changes.
+
+```{r data_chunk2_polynomial}
+
+#####[MODEL 3:] Transformed Variable Models
+model3 <- lm(scale(rel_sum) ~ scale(sci_sum) + sex + age +I(age^2) + edu, data=data_HK)
+summary(model3)
+
+stargazer(model3,
+          type="html",
+          title="Model w/ Variable Transformations",
+          out="Model 3",
+          covariate.labels=c("Scaled Science Index","Sex (male)","Age","Age squared","Educ. Secondary","Educ. Post-Secondary","Educ. Tertiary"),
+          dep.var.labels ="Scaled Religion Index")
+
+#Model 3: Prediction for mean scaled sci_sum, male, mean Age and Age squared, and
+#secondary edcuation
+prediction3 <- predict(model3, newdata = data.frame(
+  sci_sum = mean(data_HK$sci_sum),
+  sex = "male",
+  age = mean(data_HK$age),
+  edu = "post_secondary"
+), interval = "confidence")
+prediction3
+
+#effects while holding other variables constant
+ggeffect(model3, "sci_sum") %>% plot()
+ggeffect(model3, "edu") %>% plot()
+ggeffect(model3, "sex") %>% plot()
+
+```
+
+In sociology, we are often dealing with categorical outcomes, not continuous ones, and our coefficients show changes in odds ratios and not absolute values. We therefore often rely on logistic regression models. We can estimate logistic regression models for both binary and multi-category outcomes. In the following chunk, we estimate first a linear probability model (Model 4), and its obvious shortcoming. Model 5 shows a conventional binary logistic regression model, with religious meaning as the dependent variable and the religion and science index, and sex, age, and education as other covariates.
+
+In Model 6 (ordered logistic regression) and Model 7 (multinomial logistic regression), we look at multiple outcomes.
+
+```{r data_chunk3_probability}
+
+#####[MODEL 4:] Linear probability model
+
+model4 <- lm(as.numeric(relm2) ~ rel_sum, data=data_HK)
+summary(model4)
+
+#graph
+model4_p <- ggplot(data_HK, aes(y=as.numeric(relm2), x=rel_sum)) +
+  geom_point(alpha = .6) +
+  geom_smooth(method = "lm", se=F) +
+  labs(title="Association between Science and Religion", caption="Data: WVS 6-7, Hong Kong Subset (n=1,918)",y="Religious Meaning",x="Religion Index")
+
+#####[MODEL 5:] Binary logistic regression model
+model5 <- glm(relm2 ~ rel_sum + sci_sum + sex + age + edu,
+              family = binomial(link = "logit"), data = data_HK)
+summary(model5)
+
+stargazer(model5,
+          type="html",
+          title="Binary logistic regression model",
+          out="Model 5",
+          covariate.labels=c("Religion Index","Science Index","Sex (male)","Age","Educ. Secondary","Educ. Post-Secondary","Educ. Tertiary"),
+          dep.var.labels ="Afterlife vs Presentlife ")
+
+#effects while holding other variables constant
+ggeffect(model5, "rel_sum") %>% plot() 
+ggeffect(model5, "sci_sum") %>% plot() 
+
+#prediction
+prediction5 <- predict(model5, newdata = data.frame(
+  sci_sum = mean(data_HK$sci_sum),
+  rel_sum = mean(data_HK$rel_sum),
+  sex = "male",
+  age = mean(data_HK$age),
+  edu = "tertiary"
+), type = "response")
+prediction5
+
+#####[MODEL 6:] Ordered logistic
+model6 <- polr(relpers ~ rel_sum+sci_sum+sex+age+edu, data = data_HK, Hess = TRUE)
+summary(model6)
+
+#effects while holding other variables constant
+ggeffect(model6, "sex") %>% plot()
+ggeffect(model6, "edu") %>% plot()
+ggeffect(model6, "age") %>% plot()
+
+#Model 6: Prediction for mean sci_sum and rel_sum, female, mean age, and tertiary education
+prediction6 <- predict(model6, newdata = data.frame(
+  sci_sum = mean(data_HK$sci_sum),
+  rel_sum = mean(data_HK$rel_sum),
+  sex = "female",
+  age = mean(data_HK$age),
+  edu = "tertiary"
+), type = "class")
+prediction6
+
+#[MODEL 7:] Multinomial logistic Regression Model
+model7 <- multinom(relpers ~ rel_sum+sci_sum+sex+age+edu, data = data_HK)
+summary(model7)
+
+stargazer(model7,
+          type="html",
+          title="Multinomial logistic regression model",
+          out="Model 7",
+          covariate.labels=c("Religion Index","Science Index","Sex (male)","Age","Educ. Secondary","Educ. Post-Secondary","Educ. Tertiary"),
+          dep.var.labels =c("Not Religious","Atheist"))
+
+#####Model 7: Prediction for mean sci_sum and rel_sum, male, mean age, and tertiary education
+prediction7 <- predict(model7, newdata = data.frame(
+  sci_sum = mean(data_HK$sci_sum),
+  rel_sum = mean(data_HK$rel_sum),
+  sex = c("male","female"),
+  age = mean(data_HK$age),
+  edu = "tertiary"
+), type = "probs")
+prediction7
+
+```
+
+It's also common in sociology to work with count data. They show the number of an event. The Poisson regression and the Negative Binomial Regression are the most typical ones. For models 8 and 9, we estimate the number of children someone has, based on their religion and science indices, sex, age, and education.
+
+```{r data_chunk4_count}
+
+#####[MODEL 8:] Poisson regression
+model8 <- glm(chldrn ~ rel_sum + sci_sum + sex + age + edu, data = data_HK, family = poisson(link = "log"))
+summary(model8)
+
+#effects while holding other variables constant
+ggeffect(model8, "edu") %>% plot()
+
+#Model 8: Prediction for mean sci_sum, min and max rel_sum, female, mean age, tertiary education
+prediction8 <- predict(model8, newdata = data.frame(
+  sci_sum = mean(data_HK$sci_sum),
+  rel_sum = c(min(data_HK$rel_sum), max(data_HK$rel_sum)),
+  sex = c("female"),
+  age = mean(data_HK$age),
+  edu = "tertiary"
+), type = "response")
+prediction8
+
+#[MODEL 9:] Negative binomial regression
+model9 <- glm.nb(chldrn ~ rel_sum + sci_sum + sex + age + edu, data = data_HK)
+summary(model9)
+
+stargazer(model8, model9,
+          type="html",
+          title="Count data regression model",
+          out="Model 8_9",
+          covariate.labels=c("Religion Index","Science Index","Sex (male)","Age","Educ. Secondary","Educ. Post-Secondary","Educ. Tertiary"),
+          dep.var.labels ="Number of Children")
+
+#Model 9: Prediction for mean sci_sum, min and max rel_sum, female, mean age, tertiary education
+prediction9 <- predict(model9, newdata = data.frame(
+  sci_sum = mean(data_HK$sci_sum),
+  rel_sum = c(min(data_HK$rel_sum), max(data_HK$rel_sum)),
+  sex = c("female"),
+  age = mean(data_HK$age),
+  edu = "tertiary"
+), type = "response")
+prediction9
+
+```
+
+In some cases, we have nested data, meaning that the clustering of the data might have its own effect on the dependent variable. If so, we can apply multilevel models. In Model 10.1, we recall our initial model, the simple linear regression model with religion index as dependent variable, and science index as the predictor.
+
+We switch now to the overall worldwide dataset. In Model 10.2, we estimate the same model, but we account for the clustering of observations on the country level. We add a country-level fixed effect.
+
+```{r data_chunk5_multilevel}
+
+#[MODEL 10:] Multilevel linear regression model
+model10.1 <- lm(rel_sum ~ sci_sum, data=data)
+model10.2 <- lmer(rel_sum ~ sci_sum + (1 | cntry), data=data)
+
+stargazer(model10.1, model10.2,
+          type="html",
+          title="Multilevel linear regression model",
+          out="Model 10.1_10.2",
+          covariate.labels=c("Science Index"),
+          dep.var.labels ="Religion Index")
+
+summary(model10.1)
+summary(model10.2)
+
+#Model 10.2: Prediction for all countries with their mean sci_sum
+prediction10.2 <- predict(model10.2,newdata = data.frame(sci_sum = mean(data$sci_sum),cntry = unique(data$cntry)))
+prediction10.2
+
+```
+
+Another type of nested data can be longitudinal. Here, the data is not clustered within a higher unit, but with itself, meaning every respondent has multiple cases. Longitudinal analysis are a huge topic for itself, so we'll look at the basic idea here. We use a built-in dataset from R called "sleepstudy", that is available in the package lm4.
+
+We estimate first a random intercept model (Model 11). This means that the baseline (intercept) can vary depending on a cluster (or repeated measures) In a second step, we estimate a random intercept plus random slope model (Model 12). Here, both the coefficients and the intercepts are allowed to vary between clusters.
+
+``` {r data_chunk6_longitudinal}
+
+data("sleepstudy")
+
+#[MODEL 11:] Random intercept model
+model11  <- lmer(Reaction ~ Days + (1 | Subject), data = sleepstudy)
+
+#[MODEL 12:] Random intercept and random slope model
+model12 <- lmer(Reaction ~ Days + (Days | Subject), data = sleepstudy) 
+
+stargazer(model11, model12,
+          type="html",
+          title="Longitudinal regression models",
+          out="Models 11_12",
+          covariate.labels=c("Days"),
+          dep.var.labels ="Reaction")
+
+ggplot(sleepstudy, aes(Days, Reaction, group = Subject)) +
+  geom_line(alpha = .4) +
+  geom_smooth(aes(group = NULL), method = "lm", color = "blue", se = FALSE) +
+  labs(subtitle = "Within-person trajectories + population trend line")
+
+summary(model11)
+summary(model12)
+
+```
+
+This is an overview over standard regression techniques in sociology. There are, however, many variations of these techniques, and some of them were not covered yet.

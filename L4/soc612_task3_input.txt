@@ -1,0 +1,15 @@
+nhis23[,c(2,3,5:7)]<-lapply(nhis23[,c(2,3,5:7)],function(x) as.factor(x))
+
+
+nhis23$edu <- fct_relevel(nhis23$edu,
+"primary_or_below",
+"secondary",
+"post_secondary",
+"tertiary")
+
+
+nhis23$urb <- fct_relevel(nhis23$urb,
+"large_central_metro",
+"large_fringe_metro",
+"medium_small_metro",
+"nonmetro")
